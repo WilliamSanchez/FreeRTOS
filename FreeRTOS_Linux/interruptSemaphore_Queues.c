@@ -11,23 +11,26 @@
 /* FreeRTOS kernel includes. */
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 #include "semphr.h"
 
 static void vHandlerTask(void *q);
+static void vIntegerGenerator(void *pvParameters);
+
 static void sigHandler();
 
 xSemaphoreHandle binarysem;
 
+xQueueHandle xIntegerQueue = NULL;
+xQueueHandle xStringQueue = NULL;
 
 /*
-
 1. An interrupt occurred.
 2. The interrupt service routine executed, ‘giving’ the semaphore to unblock the Handler task.
 3. The Handler task executed as soon as the interrupt completed. The first thing the Handler task did
    was ‘take’ the semaphore.
 4. The Handler task performed the event processing before attempting to ‘take’ the semaphore again
 – entering the Blocked state if the semaphore was not immediately available.
-
 */
 
 
@@ -40,6 +43,9 @@ int main()
    {
        perror("Signal");
    }
+
+  xIntegerQueue=xQueueCreate(10,sizeof(char));    
+  xStringQueue=xQueueCreate(10,sizeof(char)); 
    
   binarysem = xSemaphoreCreateCounting(10,0);
   
@@ -51,6 +57,13 @@ int main()
 
 }
 
+static void vIntegerGenerator(void *pvParameters)
+{
+   portTickType xLastExecutionTime;
+   unsigned portLong ulValueToSned = 0;
+
+
+}
  
 void vHandlerTask(void *a)
 {
@@ -75,11 +88,35 @@ void vHandlerTask(void *a)
 static void sigHandler()
 {
     static portBASE_TYPE xHigherPriorityTaskWoken;
+    static unsigned long ulReceivedNumber;
+    
+    /* The strings are declared static const to ensure they are not allocated
+       on the stack of the ISR, and exist even when the ISR is not executing. */
+       
+    static const char *pcStrings[] = 
+    {
+       "String 0\r\n",
+       "String 1\r\n",
+       "String 2\r\n",
+       "String 3\r\n"
+    }
+    
     xHigherPriorityTaskWoken = pdFALSE;
     
-    xSemaphoreGiveFromISR(binarysem,&xHigherPriorityTaskWoken);
-    xSemaphoreGiveFromISR(binarysem,&xHigherPriorityTaskWoken);
-    xSemaphoreGiveFromISR(binarysem,&xHigherPriorityTaskWoken);
+    /* Loop until the queue is empty. */
+    
+    while(xQueueReceiveFromISR(xIntegerQueue,
+    				&ulReceivedNumber,
+    				&xHigherPriorityTaskWoken) != errQUEUE_EMPTY)
+    {
+    	/* Truncate the received value to the last two bits (values 0 to 3 inc.), then
+	send a pointer to the string that corresponds to the truncated value to a
+	different queue. */
+        ulReceivedNumber &= 0x03;
+        xQueueSendToBackFromISR( xStringQueue,
+        			 &pcStrings[ ulReceivedNumber ],
+        			 &xHigherPriorityTaskWoken );
+    }
     
     if(xHigherPriorityTaskWoken == pdTRUE)
     {
